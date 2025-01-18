@@ -1,138 +1,533 @@
-import type { MetaFunction } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
+import { Await, Form, useFetcher, useLoaderData, useNavigate } from "@remix-run/react";
+import { count, desc, eq } from "drizzle-orm";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Message } from "~/components/Message";
+import { MessageSkeleton } from "~/components/MessageSkeleton";
+import { db } from "~/drizzle/config.server";
+import { downloads, messages } from "~/drizzle/schema";
+import { mc } from "~/utils/mc";
 
 export const meta: MetaFunction = () => {
-  return [
-    { title: "New Remix App" },
-    { name: "description", content: "Welcome to Remix!" },
-  ];
+	return [
+		{ title: "Fuyuki Birthday!" },
+		{ name: "description", content: "Setup your own avatar frame to participate on Fuyuki's birthday." },
+	];
 };
 
-export default function Index() {
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <div className="flex flex-col items-center gap-16">
-        <header className="flex flex-col items-center gap-9">
-          <h1 className="leading text-2xl font-bold text-gray-800 dark:text-gray-100">
-            Welcome to <span className="sr-only">Remix</span>
-          </h1>
-          <div className="h-[144px] w-[434px]">
-            <img
-              src="/logo-light.png"
-              alt="Remix"
-              className="block w-full dark:hidden"
-            />
-            <img
-              src="/logo-dark.png"
-              alt="Remix"
-              className="hidden w-full dark:block"
-            />
-          </div>
-        </header>
-        <nav className="flex flex-col items-center justify-center gap-4 rounded-3xl border border-gray-200 p-6 dark:border-gray-700">
-          <p className="leading-6 text-gray-700 dark:text-gray-200">
-            What&apos;s next?
-          </p>
-          <ul>
-            {resources.map(({ href, text, icon }) => (
-              <li key={href}>
-                <a
-                  className="group flex items-center gap-3 self-stretch p-3 leading-normal text-blue-700 hover:underline dark:text-blue-500"
-                  href={href}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {icon}
-                  {text}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
-    </div>
-  );
+const baseURL = new URL("https://fuyuki.kakushin.dev/");
+
+const maxMessageLength = 400;
+const maxNameLength = 50;
+
+export async function loader({ request }: LoaderFunctionArgs) {
+	const params = new URL(request.url).searchParams;
+	const page = isNaN(Number(params.get("page"))) ? 0 : Number(params.get("page"));
+	const [msgs] = await db.select({ size: count(messages.id) }).from(messages).where(eq(messages.isDeleted, 0));
+	const totalPages = Math.ceil(msgs.size / 10);
+	if (page > totalPages) {
+		return {
+			status: 404,
+			error: "Page not found"
+		};
+	}
+
+	const data = db.select({
+		id: messages.id,
+		name: messages.name,
+		message: messages.message,
+		createdAt: messages.createdAt,
+		isDeleted: messages.isDeleted
+	}).from(messages)
+		.where(eq(messages.isDeleted, 0))
+		.orderBy(desc(messages.createdAt))
+		.limit(10)
+		.offset((page - 1) * 10);
+
+	const [downloadCount] = await db.select({ size: count(downloads.id) }).from(downloads);
+	return {
+		data: {
+			messages: data.execute(),
+			downloadCount: downloadCount.size,
+			page,
+			totalPages
+		}
+	}
+}
+export async function action({
+	request
+}: ActionFunctionArgs) {
+	const formData = await request.formData();
+	const name = formData.get("name");
+	const message = formData.get("message");
+
+	if (!name) {
+		return {
+			status: 400,
+			data: {
+				error: "Name cannot be empty",
+			},
+		};
+	}
+
+	if ((name as string).length > maxNameLength) {
+		return {
+			status: 400,
+			data: {
+				error: `Name cannot be more than ${maxNameLength} characters`,
+			},
+		};
+	}
+
+	if (!message) {
+		return {
+			status: 400,
+			data: {
+				error: "Message cannot be empty",
+			},
+		};
+	}
+
+	if ((message as string).length > maxMessageLength) {
+		return {
+			status: 400,
+			data: {
+				error: `Message cannot be more than ${maxMessageLength} characters`,
+			},
+		};
+	}
+
+	const ip = request.headers.get("cf-connecting-ip") ?? "";
+	const userAgent = request.headers.get("user-agent") ?? "";
+
+	console.log("Posting message", { name, message, ip, userAgent });
+	// Save to database
+	const result = await db.insert(messages).values({
+		name: name as string,
+		message: message as string,
+		senderIp: ip,
+		userAgent
+	}).returning({
+		id: messages.id,
+		name: messages.name,
+		message: messages.message,
+		createdAt: messages.createdAt,
+		isDeleted: messages.isDeleted
+	});
+
+	return Response.json({
+		status: 204,
+		message: "Message posted successfully",
+		data: result,
+	});
 }
 
-const resources = [
-  {
-    href: "https://remix.run/start/quickstart",
-    text: "Quick Start (5 min)",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M8.51851 12.0741L7.92592 18L15.6296 9.7037L11.4815 7.33333L12.0741 2L4.37036 10.2963L8.51851 12.0741Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://remix.run/start/tutorial",
-    text: "Tutorial (30 min)",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M4.561 12.749L3.15503 14.1549M3.00811 8.99944H1.01978M3.15503 3.84489L4.561 5.2508M8.3107 1.70923L8.3107 3.69749M13.4655 3.84489L12.0595 5.2508M18.1868 17.0974L16.635 18.6491C16.4636 18.8205 16.1858 18.8205 16.0144 18.6491L13.568 16.2028C13.383 16.0178 13.0784 16.0347 12.915 16.239L11.2697 18.2956C11.047 18.5739 10.6029 18.4847 10.505 18.142L7.85215 8.85711C7.75756 8.52603 8.06365 8.21994 8.39472 8.31453L17.6796 10.9673C18.0223 11.0653 18.1115 11.5094 17.8332 11.7321L15.7766 13.3773C15.5723 13.5408 15.5554 13.8454 15.7404 14.0304L18.1868 16.4767C18.3582 16.6481 18.3582 16.926 18.1868 17.0974Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://remix.run/docs",
-    text: "Remix Docs",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M9.99981 10.0751V9.99992M17.4688 17.4688C15.889 19.0485 11.2645 16.9853 7.13958 12.8604C3.01467 8.73546 0.951405 4.11091 2.53116 2.53116C4.11091 0.951405 8.73546 3.01467 12.8604 7.13958C16.9853 11.2645 19.0485 15.889 17.4688 17.4688ZM2.53132 17.4688C0.951566 15.8891 3.01483 11.2645 7.13974 7.13963C11.2647 3.01471 15.8892 0.951453 17.469 2.53121C19.0487 4.11096 16.9854 8.73551 12.8605 12.8604C8.73562 16.9853 4.11107 19.0486 2.53132 17.4688Z"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
-      </svg>
-    ),
-  },
-  {
-    href: "https://rmx.as/discord",
-    text: "Join Discord",
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="24"
-        height="20"
-        viewBox="0 0 24 20"
-        fill="none"
-        className="stroke-gray-600 group-hover:stroke-current dark:stroke-gray-300"
-      >
-        <path
-          d="M15.0686 1.25995L14.5477 1.17423L14.2913 1.63578C14.1754 1.84439 14.0545 2.08275 13.9422 2.31963C12.6461 2.16488 11.3406 2.16505 10.0445 2.32014C9.92822 2.08178 9.80478 1.84975 9.67412 1.62413L9.41449 1.17584L8.90333 1.25995C7.33547 1.51794 5.80717 1.99419 4.37748 2.66939L4.19 2.75793L4.07461 2.93019C1.23864 7.16437 0.46302 11.3053 0.838165 15.3924L0.868838 15.7266L1.13844 15.9264C2.81818 17.1714 4.68053 18.1233 6.68582 18.719L7.18892 18.8684L7.50166 18.4469C7.96179 17.8268 8.36504 17.1824 8.709 16.4944L8.71099 16.4904C10.8645 17.0471 13.128 17.0485 15.2821 16.4947C15.6261 17.1826 16.0293 17.8269 16.4892 18.4469L16.805 18.8725L17.3116 18.717C19.3056 18.105 21.1876 17.1751 22.8559 15.9238L23.1224 15.724L23.1528 15.3923C23.5873 10.6524 22.3579 6.53306 19.8947 2.90714L19.7759 2.73227L19.5833 2.64518C18.1437 1.99439 16.6386 1.51826 15.0686 1.25995ZM16.6074 10.7755L16.6074 10.7756C16.5934 11.6409 16.0212 12.1444 15.4783 12.1444C14.9297 12.1444 14.3493 11.6173 14.3493 10.7877C14.3493 9.94885 14.9378 9.41192 15.4783 9.41192C16.0471 9.41192 16.6209 9.93851 16.6074 10.7755ZM8.49373 12.1444C7.94513 12.1444 7.36471 11.6173 7.36471 10.7877C7.36471 9.94885 7.95323 9.41192 8.49373 9.41192C9.06038 9.41192 9.63892 9.93712 9.6417 10.7815C9.62517 11.6239 9.05462 12.1444 8.49373 12.1444Z"
-          strokeWidth="1.5"
-        />
-      </svg>
-    ),
-  },
-];
+export default function Index() {
+	const navigate = useNavigate();
+	const messageData = useLoaderData<typeof loader>();
+	const [isCopying, setIsCopying] = useState(false);
+	const onCopy = useCallback(() => {
+		if (isCopying) return;
+		navigator.clipboard.writeText(baseURL.href);
+		setIsCopying(true);
+		setTimeout(() => setIsCopying(false), 1000);
+	}, [isCopying]);
+
+	// Pagination
+	const [currentPage, setCurrentPage] = useState((messageData.data?.page ?? 0));
+	useEffect(() => {
+		setCurrentPage(messageData.data?.page ?? 0);
+	}, [messageData.data?.page]);
+
+	const handlePagination = useCallback((incrementBy: number) => {
+		setCurrentPage((p) => p + incrementBy);
+	}, []);
+
+	useEffect(() => {
+		if (navigate) navigate(`/?page=${currentPage}`);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [currentPage]);
+	// Form
+	const fetcher = useFetcher();
+	const postModalRef = useRef<HTMLDialogElement | null>(null);
+	const [formData, setFormData] = useState({
+		name: "",
+		message: "",
+	});
+
+	const [formErrors, setFormErrors] = useState({
+		name: "",
+		message: "",
+	});
+
+	const handleFormSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+		e.preventDefault();
+		if (fetcher.state !== "idle") return;
+		if (!formData.name) {
+			setFormErrors((prev) => ({ ...prev, name: "Name cannot be empty" }));
+		} else if (!formData.message) {
+			setFormErrors((prev) => ({ ...prev, message: "Message cannot be empty" }));
+		} else if (formData.message.length > maxMessageLength) {
+			setFormErrors((prev) => ({ ...prev, message: `Message cannot be more than ${maxMessageLength} characters` }));
+		} else if (formData.name.length > maxNameLength) {
+			setFormErrors((prev) => ({ ...prev, name: `Name cannot be more than ${maxNameLength} characters` }));
+		} else {
+			postModalRef.current?.showModal();
+		}
+	}, [formData, fetcher]);
+
+	const handleRealSubmit = useCallback(async () => {
+		const data = new FormData();
+		data.append("name", formData.name);
+		data.append("message", formData.message);
+		await fetcher.submit(data, {
+			method: "POST"
+		});
+
+		postModalRef.current?.close();
+	}, [fetcher, formData]);
+	// End Form
+
+	const [frameImage, setFrameImage] = useState<HTMLImageElement | null>(null);
+	const [userImage, setUserImage] = useState<HTMLImageElement | null>(null);
+	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const [firstLayerPosition, setFirstLayerPosition] = useState({ x: 0, y: 0 });
+	const [secondLayerOpacity, setSecondLayerOpacity] = useState(1);
+	const [zoom, setZoom] = useState(1);
+	const [imageRotation, setImageRotation] = useState(0);
+	const isDragging = useRef(false);
+	const dragStart = useRef<{ x: number; y: number; dist?: number }>({ x: 0, y: 0 });
+	const movementSensitivityMultiplier = useMemo(() => 1.5, []);
+	const tipsModalRef = useRef<HTMLDialogElement | null>(null);
+
+	const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.item(0);
+		if (!file) return;
+		const image = new Image();
+		image.onload = () => {
+			setUserImage(image);
+		};
+		image.src = URL.createObjectURL(file);
+		tipsModalRef.current?.showModal();
+	}, []);
+
+	const handleDownload = useCallback(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+		const a = document.createElement("a");
+		a.href = canvas.toDataURL("image/png");
+		a.download = "fuyuki-twibbon-avatar.png";
+		a.click();
+
+		void fetcher.submit(new FormData(), {
+			method: "POST",
+			action: "/downloads"
+		})
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [canvasRef]);
+
+	useEffect(() => {
+		if (!frameImage) {
+			const frame = new Image();
+			frame.onload = () => {
+				setFrameImage(frame);
+			};
+			frame.src = "/frame.png";
+		}
+		return () => {
+			frameImage?.remove();
+		};
+	}, [frameImage]);
+
+	const drawCanvas = useCallback(() => {
+		const canvas = canvasRef.current;
+		if (!canvas || !frameImage || !userImage) return;
+
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
+
+
+		const drawSecondLayer = () => {
+			ctx.globalAlpha = secondLayerOpacity;
+			ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
+			ctx.globalAlpha = 1;
+		}
+
+		canvas.width = frameImage.naturalWidth;
+		canvas.height = frameImage.naturalHeight;
+
+		// Draw the first layer
+		if (userImage) {
+			ctx.save();
+			ctx.translate(canvas.width / 2, canvas.height / 2);
+			ctx.rotate((imageRotation * Math.PI) / 180);
+			ctx.drawImage(
+				userImage,
+				-userImage.naturalWidth / 2 + firstLayerPosition.x,
+				-userImage.naturalHeight / 2 + firstLayerPosition.y,
+				userImage.naturalWidth * zoom,
+				userImage.naturalHeight * zoom
+			);
+			ctx.restore();
+
+			drawSecondLayer();
+		} else {
+			ctx.fillStyle = "white";
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			drawSecondLayer();
+		}
+
+
+	}, [firstLayerPosition, secondLayerOpacity, zoom, frameImage, userImage, imageRotation]);
+
+	const handleRotation = useCallback((incrementBy: number) => {
+		setImageRotation((r) => (r + incrementBy) % 360);
+	}, []);
+
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(() => drawCanvas(), [zoom, firstLayerPosition, secondLayerOpacity, frameImage, userImage, imageRotation]);
+
+	useEffect(() => {
+		const canvas = canvasRef.current;
+		if (!canvas) return;
+
+		const handleDrag = (e: MouseEvent) => {
+			if (!isDragging.current) return;
+			const angle = (imageRotation * Math.PI) / 180;
+			const dx = (e.clientX - dragStart.current.x) * Math.cos(angle) + (e.clientY - dragStart.current.y) * Math.sin(angle);
+			const dy = (e.clientY - dragStart.current.y) * Math.cos(angle) - (e.clientX - dragStart.current.x) * Math.sin(angle);
+			dragStart.current = { x: e.clientX, y: e.clientY };
+			setFirstLayerPosition((pos) => ({ x: pos.x + dx * movementSensitivityMultiplier, y: pos.y + dy * movementSensitivityMultiplier }));
+			setSecondLayerOpacity(0.5);
+		};
+
+		const handleDragEnd = () => {
+			isDragging.current = false;
+			setSecondLayerOpacity(1);
+		};
+
+		const handleWheel = (e: WheelEvent) => {
+			if (!e.ctrlKey) return;
+			e.preventDefault();
+			const delta = -e.deltaY / 500;
+			setZoom((z) => Math.min(Math.max(0.5, z + delta), 2));
+			setSecondLayerOpacity(0.5);
+			setTimeout(() => setSecondLayerOpacity(1), 200);
+		};
+
+		const handlePointerDown = (e: MouseEvent) => {
+			isDragging.current = true;
+			dragStart.current = { x: e.clientX, y: e.clientY };
+		};
+
+		const handleTouchMove = (e: TouchEvent) => {
+			if (e.touches.length === 2) {
+				e.preventDefault();
+				const touch1 = e.touches[0];
+				const touch2 = e.touches[1];
+				const dist = Math.hypot(
+					touch2.clientX - touch1.clientX,
+					touch2.clientY - touch1.clientY
+				);
+
+				if (!dragStart.current.dist) {
+					dragStart.current.dist = dist;
+					return;
+				}
+				const scaleChange = dist - dragStart.current.dist;
+				dragStart.current.dist = dist;
+				setZoom((z) => Math.min(Math.max(0.5, z + scaleChange / 200), 2));
+				setSecondLayerOpacity(0.5);
+			} else if (e.touches.length === 1) {
+				if (!isDragging.current) return;
+				e.preventDefault();
+				const touch = e.touches[0];
+				const angle = (imageRotation * Math.PI) / 180;
+				const dx = (touch.clientX - dragStart.current.x) * Math.cos(angle) + (touch.clientY - dragStart.current.y) * Math.sin(angle);
+				const dy = (touch.clientY - dragStart.current.y) * Math.cos(angle) - (touch.clientX - dragStart.current.x) * Math.sin(angle);
+				dragStart.current = { x: touch.clientX, y: touch.clientY };
+				setFirstLayerPosition((pos) => ({ x: pos.x + dx * movementSensitivityMultiplier, y: pos.y + dy * movementSensitivityMultiplier }));
+				setSecondLayerOpacity(0.5);
+			}
+		}
+
+
+		const handleTouchStart = (e: TouchEvent) => {
+			if (e.touches.length === 1) {
+				const touch = e.touches[0];
+				isDragging.current = true;
+				dragStart.current = { x: touch.clientX, y: touch.clientY };
+			}
+		}
+
+		canvas.addEventListener("mousedown", handlePointerDown);
+		canvas.addEventListener("mousemove", handleDrag);
+		canvas.addEventListener("mouseup", handleDragEnd);
+		canvas.addEventListener("wheel", handleWheel);
+		canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
+		canvas.addEventListener("touchstart", handleTouchStart);
+		canvas.addEventListener("touchend", handleDragEnd);
+
+		return () => {
+			canvas.removeEventListener("mousedown", handlePointerDown);
+			canvas.removeEventListener("mousemove", handleDrag);
+			canvas.removeEventListener("mouseup", handleDragEnd);
+			canvas.removeEventListener("wheel", handleWheel);
+			canvas.removeEventListener("touchmove", handleTouchMove);
+			canvas.removeEventListener("touchstart", handleTouchStart);
+			canvas.removeEventListener("touchend", handleDragEnd);
+		};
+	}, [imageRotation, firstLayerPosition, movementSensitivityMultiplier]);
+
+
+	return (
+		<section className="w-full pt-16 px-4 md:px-0">
+			<dialog ref={tipsModalRef} className="modal">
+				<div className="modal-box">
+					<h3 className="font-bold text-lg">Tips</h3>
+					<p className="py-4 block md:hidden">Start dragging or pinching on the picture to adjust the image&apos;s position</p>
+					<p className="py-4 hidden md:block">Start dragging or <kbd className="kbd">CTRL</kbd> + <kbd className="kbd">Scroll</kbd> on the picture to adjust the image&apos;s position</p>
+					<div className="modal-action">
+						<form method="dialog">
+							<button className="btn btn-success text-white">Understood</button>
+						</form>
+					</div>
+				</div>
+			</dialog>
+			<dialog ref={postModalRef} className="modal">
+				<div className="modal-box">
+					<h3 className="font-bold text-lg">Confirmation</h3>
+					<p className="py-4">Are you sure want to post this:</p>
+					<p>Message: {formData.message}</p>
+					<p>By: {formData.name}</p>
+					<p className="py-4">Please be polite and respectful when posting message unless you want to get blocked from this page.</p>
+					<div className="modal-action">
+						<form method="dialog" className="flex gap-4">
+							<button disabled={fetcher.state === "submitting"} className="btn btn-ghost">Cancel</button>
+							<button onClick={() => handleRealSubmit()} disabled={fetcher.state === "submitting"} className="btn btn-success text-white">{fetcher.state === "submitting" ? "Loading..." : "Yes, proceed."}</button>
+						</form>
+					</div>
+				</div>
+			</dialog>
+			<div className="container m-auto w-fit">
+				<section className="w-full">
+					<main className="flex p-8 bg-neutral-100 rounded-xl border-[1px] border-gray-200 shadow gap-8 flex-col md:flex-row">
+						<aside>
+							<canvas ref={canvasRef} className="aspect-square size-80 md:size-96 mx-auto" />
+							<div className={mc("grid grid-rows-2 grid-cols-1 gap-y-3 flex-col mt-4", {
+								"grid-rows-1": !userImage
+							})}>
+								{userImage && <button onClick={handleDownload} className="btn btn-primary w-80 mx-auto md:w-full text-white"><img src="/download-white.svg" className="stroke-white" alt="Download Icon"></img> Download</button>}
+								<input
+									type="file"
+									accept="image/png, image/jpeg, image/webp"
+									onChange={handleFileChange}
+									className="file-input file-input-bordered file-input-secondary w-80 mx-auto md:w-full" />
+								{userImage &&
+									<div className="flex gap-x-2 items-center justify-center">
+										<button onClick={() => handleRotation(-90)} className="btn btn-neutral">
+											<img src="/rotate.svg" alt="Rotate" className="size-6 aspect-square" />
+										</button>
+										<button onClick={() => handleRotation(90)} className="btn btn-neutral">
+											<img src="/rotate-2.svg" alt="Rotate" className="size-6 aspect-square" />
+										</button>
+									</div>
+								}
+							</div>
+						</aside>
+						<div className="space-y-2">
+							<h1 className="text-xl font-semibold">Satou Fuyuki&apos;s Day!</h1>
+							<p className="inline-flex items-center gap-x-1 text-sm text-gray-500"><span><img src="/download.svg" alt="Download Icon" className="size-5"></img></span> {messageData.data?.downloadCount.toLocaleString()} downloads</p>
+
+							<p className="flex items-center gap-x-1 text-md text-blue-500 font-bold">
+								<img src="/link.svg" alt="URL Icon" className="size-5"></img>
+								<span className="text-blue-400"><a href={baseURL.href}>{baseURL.hostname}</a></span>
+								<button className={
+									mc("btn btn-neutral btn-xs", {
+										"btn-success text-white": isCopying
+									})
+								} onClick={onCopy}>
+									{isCopying ? "copied" : "copy link"}
+								</button>
+							</p>
+
+							<Form method="POST" onSubmit={handleFormSubmit}>
+								{/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+								<label className="form-control w-full">
+									<div className="label">
+										<span className="label-text text-lg font-medium">Your Name</span>
+									</div>
+									<input
+										onChange={(e) => {
+											setFormData(prev => ({ ...prev, name: e.target.value }));
+											setFormErrors(prev => ({ ...prev, name: "" }));
+										}}
+										value={formData.name}
+										placeholder="Skylar"
+										className={mc("input input-bordered w-full", {
+											"input-error": formErrors.name !== ""
+										})} />
+									<div className="label">
+										{formErrors.name && <span className="label-text-alt text-red-500">{formErrors.name}</span>}
+									</div>
+								</label>
+
+								{/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
+								<label className="form-control w-full">
+									<div className="label">
+										<span className="label-text text-lg font-medium">Wish Fuyuki Something!</span>
+									</div>
+									<textarea
+										onChange={(e) => {
+											setFormData(prev => ({ ...prev, message: e.target.value }));
+											setFormErrors(prev => ({ ...prev, message: "" }));
+										}}
+										value={formData.message}
+										placeholder="Write a message for him"
+										className={mc("textarea textarea-bordered w-full resize-none h-32", {
+											"textarea-error": formErrors.message !== "" || formData.message.length > maxMessageLength
+										})} />
+									<div className="label">
+										{formErrors.message && <span className="label-text-alt text-red-500">{formErrors.message}</span>}
+										{!formErrors.message && <span className={mc("label-text-alt text-gray-400", {
+											"text-red-500": formData.message.length > maxMessageLength
+										})}>{maxMessageLength - formData.message.length}</span>}
+									</div>
+								</label>
+
+								<button type="submit" className="btn btn-info text-white w-full mt-4"><img src="/send.svg" alt="Send Icon"></img> Send</button>
+							</Form>
+						</div>
+					</main>
+
+					<section id="messages" className="max-w-3xl px-8 md:p-0">
+						<h2 className="text-xl font-semibold mt-8">Messages</h2>
+						<main className="grid grid-cols-1 gap-4 mt-4">
+							<Suspense fallback={
+								new Array(5).fill(0).map((_, i) => (
+									<MessageSkeleton key={i} />
+								))
+							}>
+								<Await resolve={messageData.data?.messages}>
+									{(msgs) => msgs?.length === 0 ? <p className="text-gray-400">No messages yet</p>
+										: <>
+											{msgs?.map((msg) => (<Message key={msg.id} name={msg.name} message={msg.message} createdAt={msg.createdAt} />))}
+											<div className="join mx-auto">
+												<button onClick={() => handlePagination(-1)} disabled={currentPage === 0} className="join-item btn">«</button>
+												<button className="join-item btn">Page {currentPage + 1}</button>
+												<button onClick={() => handlePagination(1)} disabled={currentPage === messageData.data?.totalPages} className="join-item btn">»</button>
+											</div>
+										</>}
+								</Await>
+							</Suspense>
+						</main>
+					</section>
+					<footer className="flex items-center justify-center my-12 flex-col gap-y-2">
+						<p>Made with ❤ by <span className="text-blue-400"><a href="https://x.com/knyueki" rel="noreferrer" target="_blank">@knyueki</a></span></p>
+						<p>Written in <span className="text-blue-400"><a href="https://remix.run/" rel="noreferrer" target="_blank">Remix</a></span> | <span className="text-blue-400"><a href="https://github.com/satoufuyuki/fuyuki-frame" rel="noreferrer" target="_blank">Source Code</a></span></p>
+					</footer>
+				</section>
+			</div>
+		</section>
+	);
+}
