@@ -39,7 +39,7 @@ ENV NODE_ENV production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 remix
 
-# Set the correct permission for prerender cache
+# Set the correct permission
 RUN mkdir build
 RUN chown remix:nodejs build
 
@@ -47,6 +47,8 @@ COPY --from=builder --chown=remix:nodejs /app/build .
 COPY --from=builder --chown=remix:nodejs /app/public .
 COPY --from=builder --chown=remix:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=remix:nodejs /app/LICENSE .
+COPY --from=builder --chown=remix:nodejs /app/data .
+COPY --from=builder --chown=remix:nodejs /app/drizzle .
 
 USER remix
 EXPOSE 3000
