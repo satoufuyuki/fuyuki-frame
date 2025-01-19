@@ -53,7 +53,6 @@ COPY --from=builder --chown=remix:nodejs /app/drizzle .
 USER remix
 EXPOSE 3000
 
-
 HEALTHCHECK --interval=5s --timeout=10s --start-period=10s --retries=3 CMD [ "curl", "-f", "http://localhost:3000/" ]
 
-CMD ./node_modules/.bin/remix-serve build/server/index.js
+CMD ./node_modules/.bin/remix-serve /app/build/server/index.js
