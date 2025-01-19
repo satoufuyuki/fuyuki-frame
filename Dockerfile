@@ -43,12 +43,12 @@ RUN adduser --system --uid 1001 remix
 RUN mkdir build
 RUN chown remix:nodejs build
 
-COPY --from=builder --chown=remix:nodejs /app/build .
-COPY --from=builder --chown=remix:nodejs /app/public .
+COPY --from=builder --chown=remix:nodejs /app/build ./build
+COPY --from=builder --chown=remix:nodejs /app/public ./public
 COPY --from=builder --chown=remix:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=remix:nodejs /app/LICENSE .
-COPY --from=builder --chown=remix:nodejs /app/data .
-COPY --from=builder --chown=remix:nodejs /app/drizzle .
+COPY --from=builder --chown=remix:nodejs /app/data ./data
+COPY --from=builder --chown=remix:nodejs /app/drizzle ./drizzle
 
 USER remix
 EXPOSE 3000
