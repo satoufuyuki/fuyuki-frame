@@ -241,14 +241,15 @@ export default function Index() {
 
 	const drawCanvas = useCallback(() => {
 		const canvas = canvasRef.current;
-		if (!canvas || !frameImage || !userImage) return;
+		if (!canvas || !frameImage) return;
 
 		const ctx = canvas.getContext("2d");
 		if (!ctx) return;
 
 
 		const drawSecondLayer = () => {
-			ctx.globalAlpha = secondLayerOpacity;
+			// Ignore opacity changes if there's no first layer
+			if (userImage) ctx.globalAlpha = secondLayerOpacity;
 			ctx.drawImage(frameImage, 0, 0, canvas.width, canvas.height);
 			ctx.globalAlpha = 1;
 		}
@@ -276,8 +277,6 @@ export default function Index() {
 			ctx.fillRect(0, 0, canvas.width, canvas.height);
 			drawSecondLayer();
 		}
-
-
 	}, [firstLayerPosition, secondLayerOpacity, zoom, frameImage, userImage, imageRotation]);
 
 	const handleRotation = useCallback((incrementBy: number) => {
