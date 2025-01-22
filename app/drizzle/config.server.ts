@@ -7,4 +7,4 @@ export const db = drizzle(process.env.DB_FILE_NAME ?? "file:data/database.db");
 
 void migrate(db, {
     migrationsFolder: "drizzle/migrations"
-});
+}).catch(console.error);
