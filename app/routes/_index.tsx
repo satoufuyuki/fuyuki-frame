@@ -12,6 +12,22 @@ export const meta: MetaFunction = () => {
 	return [
 		{ title: "Fuyuki Birthday!" },
 		{ name: "description", content: "Setup your own avatar frame to participate on Fuyuki's birthday." },
+		{ name: "keyword", content: "satou, satou fuyuki, birthday, avatar, frame, twibbon" },
+		{ name: "author", content: "knyueki" },
+		{ name: "viewport", content: "width=device-width, initial-scale=1" },
+		{ name: "og:title", content: "Fuyuki Birthday!" },
+		{ name: "og:description", content: "Setup your own avatar frame to participate on Fuyuki's birthday." },
+		{ name: "og:type", content: "website" },
+		{ name: "og:url", content: "https://fuyuki.kakushin.dev/" },
+		{ name: "og:image", content: "https://fuyuki.kakushin.dev/og-image.png" },
+		{ name: "og:site_name", content: "Fuyuki Birthday!" },
+		{ name: "og:locale", content: "en_US" },
+		{ name: "twitter:card", content: "summary_large_image" },
+		{ name: "twitter:site", content: "@knyueki" },
+		{ name: "twitter:creator", content: "@knyueki" },
+		{ name: "twitter:title", content: "Fuyuki Birthday!" },
+		{ name: "twitter:description", content: "Setup your own avatar frame to participate on Fuyuki's birthday." },
+		{ name: "twitter:image", content: "https://fuyuki.kakushin.dev/og-image.png" },
 	];
 };
 
@@ -125,6 +141,7 @@ export async function action({
 export default function Index() {
 	const navigate = useNavigate();
 	const messageData = useLoaderData<typeof loader>();
+	console.log(messageData);
 	const [isCopying, setIsCopying] = useState(false);
 	const onCopy = useCallback(() => {
 		if (isCopying) return;
@@ -450,7 +467,9 @@ export default function Index() {
 								</button>
 							</p>
 
-							<Form method="POST" onSubmit={handleFormSubmit}>
+							<Form method="POST" onSubmit={handleFormSubmit} className="pt-6">
+								<p>...also wish him something!</p>
+
 								{/* eslint-disable-next-line jsx-a11y/label-has-associated-control */}
 								<label className="form-control w-full">
 									<div className="label">
@@ -514,7 +533,7 @@ export default function Index() {
 											<div className="join mx-auto">
 												<button onClick={() => handlePagination(-1)} disabled={currentPage === 0} className="join-item btn">«</button>
 												<button className="join-item btn">Page {currentPage + 1}</button>
-												<button onClick={() => handlePagination(1)} disabled={currentPage === messageData.data?.totalPages} className="join-item btn">»</button>
+												<button onClick={() => handlePagination(1)} disabled={currentPage + 1 === messageData.data?.totalPages} className="join-item btn">»</button>
 											</div>
 										</>}
 								</Await>
