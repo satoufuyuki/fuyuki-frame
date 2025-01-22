@@ -58,7 +58,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		.where(eq(messages.isDeleted, false))
 		.orderBy(desc(messages.createdAt))
 		.limit(10)
-		.offset((page - 1) * 10);
+		.offset(page * 10);
 
 	const [downloadCount] = await db.select({ size: count(downloads.id) }).from(downloads);
 	return {
