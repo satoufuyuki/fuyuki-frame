@@ -1,10 +1,11 @@
 import "dotenv/config";
 import process from "node:process";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate } from "drizzle-orm/libsql/migrator";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 
-export const db = drizzle(process.env.DB_FILE_NAME ?? "file:data/database.db");
+// eslint-disable-next-line typescript/no-non-null-assertion
+export const db = drizzle(process.env.DATABASE_URL!);
 
 void migrate(db, {
     migrationsFolder: "drizzle/migrations"
-}).catch(console.error);
+});

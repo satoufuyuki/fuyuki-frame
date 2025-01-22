@@ -39,7 +39,7 @@ const maxNameLength = 50;
 export async function loader({ request }: LoaderFunctionArgs) {
 	const params = new URL(request.url).searchParams;
 	const page = isNaN(Number(params.get("page"))) ? 0 : Number(params.get("page"));
-	const [msgs] = await db.select({ size: count(messages.id) }).from(messages).where(eq(messages.isDeleted, 0));
+	const [msgs] = await db.select({ size: count(messages.id) }).from(messages).where(eq(messages.isDeleted, false));
 	const totalPages = Math.ceil(msgs.size / 10);
 	if (page > totalPages) {
 		return {
@@ -55,7 +55,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 		createdAt: messages.createdAt,
 		isDeleted: messages.isDeleted
 	}).from(messages)
-		.where(eq(messages.isDeleted, 0))
+		.where(eq(messages.isDeleted, false))
 		.orderBy(desc(messages.createdAt))
 		.limit(10)
 		.offset((page - 1) * 10);
